@@ -1,96 +1,96 @@
-#include"mail.hpp"
-#include <iostream>
-#include<sys/socket.h>
-#include<netinet/in.h>
-#include<unistd.h>
-#include<sys/epoll.h>
-#include <cstring>
 
+#define WIN32_LEAN_AND_MEAN
+
+#include <iostream>
+#include<windows.h>
+#include<winsock2.h>
+#include<ws2tcpip.h>
+//#include<winsock.h>
 
 using namespace std;
 
+HANDLE hSerial;
+//#define DEFAULT_PORT "27015"
+
 int main()
 {
+    ADDRINFO hints;
+    ADDRINFO* addrResult = NULL;
+    SOCKET ConnectSocket = INVALID_SOCKET;
 
-    cout << "test" << endl;
-    int masterSocket = socket(AF_INET, SOCK_STREAM, 0);
-    sockaddr_in mSockAddr;
-    mSockAddr.sin_family = AF_INET;
-    mSockAddr.sin_port = htons(12345);
-    mSockAddr.sin_addr.s_addr = htons(INADDR_ANY);
-
-    connect(masterSocket, (sockaddr*)(&mSockAddr), sizeof (mSockAddr));
-
-
-    int epollFd =epoll_create1(0);
-    epoll_event mEvent;
-    epoll_event mEvents[5];
-    mEvent.events = EPOLLIN;
-    mEvent.data.fd = masterSocket;
-    epoll_ctl(epollFd, EPOLL_CTL_ADD, masterSocket, &mEvent);
-    epoll_event mEvent0;
-    mEvent0.data.fd = 0;
-    mEvent0.events = EPOLLIN;
-    epoll_ctl(epollFd, EPOLL_CTL_ADD, 0, &mEvent0);
-    /*
-    int epollFd_Out = epoll_create1(0);
-    epoll_event mEvent_Out;
-    mEvent_Out.events = EPOLLIN;
-    mEvent_Out.data.fd = 0;
-    epoll_ctl(epollFd_Out, EPOLL_CTL_ADD, 0, &mEvent_Out);
-    */
-    while (1) {
-
-
-
-        int namberEpoll = epoll_wait(epollFd, mEvents,5, 0);
-        for(int i = 0; i < namberEpoll; ++i){
-            if(mEvents[i].data.fd == masterSocket){
-                Mail tempMail;
-                tempMail.data[0]=0;
-                int namberRead =read(mEvents[i].data.fd, &tempMail.data, sizeof (tempMail.data));
-                if(namberRead > 0){
-                    cout << i << ": read: " << tempMail.data << endl;
-                }
-            }
-            else {
-                Mail tempMail;
-                memset(tempMail.data, 0, sizeof(tempMail.data));
-                tempMail.data[0] = 0;
-                tempMail.typeMail = MESSAGE;
-                read(mEvents[i].data.fd, tempMail.data,sizeof(tempMail.data));
-                if(tempMail.data[0]!=0){
-                    cout <<" tempMail.data: " << tempMail.data << endl;
-                    send(masterSocket, &tempMail, sizeof (tempMail), 0);
-                }
-            }
-
-        }
-
-        /*
-        char buf[1024] = {0};
-        int N = epoll_wait(epollFd_Out, mEvents, 5 , 0);
-        for(int a =0; a < N; ++a){
-            Mail tempMail;
-            memset(tempMail.data, 0, sizeof(tempMail.data));
-            tempMail.data[0] = 0;
-            tempMail.typeMail = MESSAGE;
-            read(mEvents[a].data.fd, tempMail.data,sizeof(tempMail.data));
-            if(tempMail.data[0]!=0){
-                cout <<" tempMail.data: " << tempMail.data << endl;
-                send(masterSocket, &tempMail, sizeof (tempMail), 0);
-            }
-
-        }
-        */
+    WSADATA wsaData;
+    int resalt;
+    resalt = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if(resalt) {
+        cout << "WSAStartup failed, resalt = " << resalt << endl;
+        return 1;
     }
 
+   ZeroMemory(&hints,sizeof (hints));
+   hints.ai_family = AF_INET;
+   hints.ai_socktype = SOCK_STREAM;
+   hints.ai_protocol = IPPROTO_TCP;
 
+   resalt = getaddrinfo("localhost","666",&hints,&addrResult);
+   if(resalt) {
+       cout << "getaddrinfo failed, resalt = " << resalt << endl;
+       WSACleanup();
+       return 1;
+   }
 
+   ConnectSocket = socket(addrResult->ai_flags, addrResult->ai_socktype, addrResult->ai_protocol);
+   if (ConnectSocket == INVALID_SOCKET){
+       cout << "ConnectSocket == INVALID_SOCKET" << endl;
+       WSACleanup();
+       freeaddrinfo(addrResult);
+       return 1;
+   }
 
+   resalt = connect(ConnectSocket, addrResult->ai_addr, (int)addrResult->ai_addrlen);
+   if (resalt == SOCKET_ERROR){
+       cout << "Unable connect to server" << endl;
+        closesocket(ConnectSocket);
+        ConnectSocket = INVALID_SOCKET;
+        freeaddrinfo(addrResult);
+        WSACleanup();
+        return 1;
+   }
 
+   const char* sendBuffer = "Hi from Client";
+   resalt = send(ConnectSocket, sendBuffer,(int)strlen(sendBuffer),0);
+     if(resalt == SOCKET_ERROR){
+         cout << "send failed, ERROR" << endl;
+         closesocket(ConnectSocket);
+         freeaddrinfo(addrResult);
+         WSACleanup();
+         return 1;
+     }
+     cout << "Bytes send: " << resalt << endl;
 
-    close(masterSocket);
+     resalt = shutdown(ConnectSocket, SD_SEND);
+     if (resalt == SOCKET_ERROR){
+         cout << "Sshutdown ERROR" << endl;
+          closesocket(ConnectSocket);
+          freeaddrinfo(addrResult);
+          WSACleanup();
+          return 1;
+     }
 
+     char recvBuffer[512];
+
+     do {
+         ZeroMemory(recvBuffer,512);
+         resalt = recv(ConnectSocket,recvBuffer,512,0);
+         if(resalt > 0){
+             cout << "Recived " << resalt <<" bytes" << endl;
+             cout << "Recived data: " << recvBuffer << endl;
+         }
+     } while (resalt > 0);
+
+     closesocket(ConnectSocket);
+     freeaddrinfo(addrResult);
+     WSACleanup();
     return 0;
 }
+
+
